@@ -30,9 +30,9 @@ volatile int page = 0;
 DHT dht(DHTPIN, DHTTYPE);
 
 // ================= DC MOTOR =================
-#define ENABLE 19
-#define DIRA 15
-#define DIRB 21
+#define ENABLE 27
+#define DIRA 25
+#define DIRB 26
 
 // ================= Servo MOTOR =================
 #define LDRPIN 34 // analog pin für licht abhängiger wiederstand
@@ -52,7 +52,7 @@ const unsigned long READ_INTERVAL = 8000; // 8 seconds
 int melody[] = {
     NOTE_C5, NOTE_D5, NOTE_E5, NOTE_F5, NOTE_G5, NOTE_A5, NOTE_B5, NOTE_C6};
 int duration = 500; // 500 miliseconds
-#define SPEAKERPIN 25
+#define SPEAKERPIN 12
 
 // ================= WIFI + Time =================
 
