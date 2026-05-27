@@ -1,11 +1,11 @@
 #include <GxEPD2_3C.h>    //GxEPD2
 #include <Fonts/FreeMonoBold9pt7b.h>
-#include <DHT.h>
+#include <DHT.h>          //DHT sensor library
 #include "pitches.h"
-#include <WiFi.h>         //ArduinoBLE
+#include <WiFi.h>         
 #include "time.h"
-#include <TimeLib.h>      //Time
-#include <HTTPClient.h>   //ArduinoHttpClient
+#include <TimeLib.h>      //Time (timelib)
+#include <HTTPClient.h>   
 #include <ArduinoJson.h>  //ArduinoJson
 #include <ESP32Servo.h>   //ESP32Servo
 
