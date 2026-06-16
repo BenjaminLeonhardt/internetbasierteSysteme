@@ -1,23 +1,22 @@
-#include <GxEPD2_3C.h>
+// Projekt SmartHome: Wetter forcast, Wecker mit lautsprecher, jalousie mit dashboard einstellen + uhr + Sonnenstand
+// Berkan Demir (78096), Benjamin Leonhardt (3018332)
+
+#include <GxEPD2_3C.h> //GxEPD2
 #include <Fonts/FreeMonoBold9pt7b.h>
 #include <DHT.h>
 #include "pitches.h"
-#include <WiFi.h>
+#include <WiFi.h> //ArduinoBLE
 #include "time.h"
-#include <TimeLib.h>
-#include <HTTPClient.h>
-#include <ArduinoJson.h>
-#include <ESP32Servo.h>
-#include <WebServer.h>   
+#include <TimeLib.h>     //Time
+#include <HTTPClient.h>  //ArduinoHttpClient
+#include <ArduinoJson.h> //ArduinoJson
+#include <ESP32Servo.h>  //ESP32Servo
+#include <WebServer.h>
 
-
-const char *ssid     = "BensGalaxy";
-const char *password = "bla12345";
-
-
-#define EPD_SS   5
-#define EPD_DC   17
-#define EPD_RST  16
+// ================= DISPLAY =================
+#define EPD_SS 5
+#define EPD_DC 17
+#define EPD_RST 16
 #define EPD_BUSY 4
 #define MAX_DISPLAY_BUFFER_SIZE 800
 #define MAX_HEIGHT(EPD) (EPD::HEIGHT <= (MAX_DISPLAY_BUFFER_SIZE / 2) / (EPD::WIDTH / 8) ? EPD::HEIGHT : (MAX_DISPLAY_BUFFER_SIZE / 2) / (EPD::WIDTH / 8))
@@ -25,75 +24,83 @@ GxEPD2_3C<GxEPD2_290_C90c, MAX_HEIGHT(GxEPD2_290_C90c)>
     display(GxEPD2_290_C90c(EPD_SS, EPD_DC, EPD_RST, EPD_BUSY));
 volatile int page = 0;
 
-
-#define DHTPIN  32
-#define DHTTYPE DHT11
+// ================= DHT SENSOR =================
+#define DHTPIN 32
+#define DHTTYPE DHT11 // use DHT22 if needed
 DHT dht(DHTPIN, DHTTYPE);
 
-
+// ================= DC MOTOR =================
 #define ENABLE 27
-#define DIRA   25
-#define DIRB   26
+#define DIRA 25
+#define DIRB 26
 
-
-#define LDRPIN 34
+// ================= Servo MOTOR =================
+#define LDRPIN 34 // analog pin für licht abhängiger wiederstand
 Servo myservo;
 
-
+// ================= TEMPERATUR SENSOR =================
 volatile float temperature = 0;
-volatile float humidity    = 0;
-volatile int   ldrValue    = 0;
-volatile bool  fanOn       = false;
+volatile float humidity = 0;
+volatile int ldrValue = 0;
+volatile bool fanOn = false;
 
-
-int melody[] = { NOTE_C5, NOTE_D5, NOTE_E5, NOTE_F5,
-                 NOTE_G5, NOTE_A5, NOTE_B5, NOTE_C6 };
+// ================= SOUND =================
+int melody[] = {NOTE_C5, NOTE_D5, NOTE_E5, NOTE_F5,
+                NOTE_G5, NOTE_A5, NOTE_B5, NOTE_C6};
 int noteDuration = 500;
 #define SPEAKERPIN 12
 
+// ================= WIFI + Time =================
+const char *ssid = "BensGalaxy";
+const char *password = "bla12345";
+const char *ntpServer = "pool.ntp.org";
+const long gmtOffset_sec = 3600;
+const int daylightOffset_sec = 3600;
 
-const char *ntpServer          = "pool.ntp.org";
-const long  gmtOffset_sec      = 3600;
-const int   daylightOffset_sec = 3600;
-
-
-volatile int  weckStunde  = 16;
-volatile int  weckMinute  = 24;
-volatile bool alarmOff    = false;
+// ================= Alarm =================
+volatile int weckStunde = 16;
+volatile int weckMinute = 24;
+volatile bool alarmOff = false;
 volatile bool alarmActive = true;
 #define ALARM_OFF_BUTTON 33
 
-
-volatile float maxTemp     = 0.0;
-volatile float minTemp     = 0.0;
-volatile float rainSum     = 0.0;
+//================= weather =================
+volatile float maxTemp = 0.0;
+volatile float minTemp = 0.0;
+volatile float rainSum = 0.0;
 volatile float snowfallSum = 0.0;
-String urlWeather = "https://api.open-meteo.com/v1/forecast"
-    "?latitude=48.8378&longitude=10.0933"
-    "&daily=temperature_2m_max,temperature_2m_min,rain_sum,snowfall_sum"
-    "&timezone=Europe%2FBerlin&forecast_days=3";
+// Aalen
+String lat = "48.8378";
+String lon = "10.0933";
+String urlWeather = "https://api.open-meteo.com/v1/forecast?latitude=" + lat + "&longitude=" + lon + "&daily=temperature_2m_max,temperature_2m_min,rain_sum,snowfall_sum&timezone=Europe%2FBerlin&forecast_days=3";
 
+// String urlWeather = "https://api.open-meteo.com/v1/forecast"
+//     "?latitude=48.8378&longitude=10.0933"
+//     "&daily=temperature_2m_max,temperature_2m_min,rain_sum,snowfall_sum"
+//     "&timezone=Europe%2FBerlin&forecast_days=3";
 
+//================= Webserver =================
 WebServer server(80);
 
-
-TaskHandle_t displayHandle     = NULL;
-TaskHandle_t forcastHandle     = NULL;
+//================= Threads =================
+TaskHandle_t displayHandle = NULL;
+TaskHandle_t forcastHandle = NULL;
 TaskHandle_t readSensorsHandle = NULL;
-TaskHandle_t fanHandle         = NULL;
-TaskHandle_t servoHandle       = NULL;
-TaskHandle_t alarmHandle       = NULL;
-TaskHandle_t webHandle         = NULL;
+TaskHandle_t fanHandle = NULL;
+TaskHandle_t servoHandle = NULL;
+TaskHandle_t alarmHandle = NULL;
+TaskHandle_t webHandle = NULL;
 
-const int DISPLAY_DELAY      = 8000;
-const int FORCAST_DELAY      = 86400000;
+//================= Delay for threads =================
+const int DISPLAY_DELAY = 8000;
+const int FORCAST_DELAY = 86400000;
 const int READ_SENSORS_DELAY = 1000;
-const int FAN_DELAY          = 1000;
-const int SERVO_DELAY        = 1000;
-const int ALARM_DELAY        = 1000;
-const int WEB_DELAY          = 10;
+const int FAN_DELAY = 1000;
+const int SERVO_DELAY = 1000;
+const int ALARM_DELAY = 1000;
+const int WEB_DELAY = 10;
 
-
+//================= Webseite =================
 const char DASHBOARD_HTML[] PROGMEM = R"rawhtml(
 <!DOCTYPE html>
 <html lang="de">
@@ -249,201 +256,489 @@ async function saveAlarm(active){const h=parseInt(document.getElementById('ah').
 </html>
 )rawhtml";
 
+// ================= DEBUGGING =================
+// 0x01 sensors; 0x02 fan; 0x03 servo; 0x04 Display; 0x05 localTime; 0x06 alarm; 0x07 forcast; 0x08 alarm set; 0x09 jalousie set
+int print = 0 | 0x02;
+
 // ═══════════════════════════════════════════════════════════════
 //  WEBSERVER ROUTEN
 // ═══════════════════════════════════════════════════════════════
 void handleRoot() { server.send_P(200, "text/html", DASHBOARD_HTML); }
 
-void handleStatus() {
+void handleStatus()
+{
   JsonDocument doc;
-  doc["temperature"]  = temperature;
-  doc["humidity"]     = humidity;
-  doc["fan_on"]       = fanOn;
-  doc["servo_angle"]  = myservo.read();
-  doc["ldr_value"]    = ldrValue;
-  doc["alarm_hour"]   = weckStunde;
+  doc["temperature"] = temperature;
+  doc["humidity"] = humidity;
+  doc["fan_on"] = fanOn;
+  doc["servo_angle"] = myservo.read();
+  doc["ldr_value"] = ldrValue;
+  doc["alarm_hour"] = weckStunde;
   doc["alarm_minute"] = weckMinute;
   doc["alarm_active"] = alarmActive;
-  doc["max_temp"]     = maxTemp;
-  doc["min_temp"]     = minTemp;
-  doc["rain_sum"]     = rainSum;
-  doc["snow_sum"]     = snowfallSum;
-  String out; serializeJson(doc, out);
+  doc["max_temp"] = maxTemp;
+  doc["min_temp"] = minTemp;
+  doc["rain_sum"] = rainSum;
+  doc["snow_sum"] = snowfallSum;
+  String out;
+  serializeJson(doc, out);
   server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "application/json", out);
 }
 
-void handleJalousie() {
-  if (server.hasArg("angle")) myservo.write(server.arg("angle").toInt());
-  server.send(200, "application/json", "{\"ok\":true}");
-}
-
-void handleAlarmSet() {
-  if (server.hasArg("hour"))   weckStunde  = server.arg("hour").toInt();
-  if (server.hasArg("minute")) weckMinute  = server.arg("minute").toInt();
-  if (server.hasArg("active")) alarmActive = server.arg("active").toInt() == 1;
-  if (!alarmActive) alarmOff = true;
-  server.send(200, "application/json", "{\"ok\":true}");
-}
-
-
-void readSensor(void *p) {
-  while (true) {
+// ================= SENSOR =================
+void readSensor(void *p)
+{
+  while (true)
+  {
+    if (print & 0x01)
+    {
+      Serial.println("Reading sensor...");
+    }
     float t = dht.readTemperature(), h = dht.readHumidity();
-    if (!isnan(t)) temperature = t;
-    if (!isnan(h)) humidity    = h;
+
+    if (isnan(t) || isnan(h))
+    {
+      if (print & 0x01)
+      {
+        Serial.println("DHT read failed!");
+      }
+    }
+
+    if (!isnan(t))
+      temperature = t;
+    if (!isnan(h))
+      humidity = h;
+
+    if (print & 0x01)
+    {
+      Serial.print("Temp: ");
+      Serial.print(temperature);
+      Serial.print(" °C | Hum: ");
+      Serial.println(humidity);
+    }
     vTaskDelay(pdMS_TO_TICKS(READ_SENSORS_DELAY));
   }
 }
 
-void controlFan(void *p) {
-  while (true) {
-    if (temperature > 28.0) { digitalWrite(ENABLE,HIGH); digitalWrite(DIRA,HIGH); digitalWrite(DIRB,LOW); fanOn=true; }
-    else                    { digitalWrite(ENABLE,LOW); fanOn=false; }
+// ================= FAN CONTROL =================
+void controlFan(void *p)
+{
+  while (true)
+  {
+    if (print & 0x02)
+    {
+      Serial.println("Checking temp and setting fan status");
+    }
+
+    if (temperature > 28.0)
+    {
+      digitalWrite(ENABLE, HIGH);
+      digitalWrite(DIRA, HIGH);
+      digitalWrite(DIRB, LOW);
+      fanOn = true;
+    }
+    else
+    {
+      digitalWrite(ENABLE, LOW);
+      fanOn = false;
+    }
+    if (print & 0x02)
+    {
+      Serial.print("Fan is ");
+      Serial.println(fanOn);
+    }
     vTaskDelay(pdMS_TO_TICKS(FAN_DELAY));
   }
 }
 
-void controlServo(void *p) {
-  while (true) {
-    int v = analogRead(LDRPIN); vTaskDelay(pdMS_TO_TICKS(SERVO_DELAY));
-    v += analogRead(LDRPIN);    vTaskDelay(pdMS_TO_TICKS(SERVO_DELAY));
-    v += analogRead(LDRPIN);    ldrValue = v;
+// ================= Servo CONTROL =================
+void controlServo(void *p)
+{
+  while (true)
+  {
+    if (print & 0x03)
+    {
+      Serial.println("Handling the servo motor");
+    }
+    int v = analogRead(LDRPIN);
+    vTaskDelay(pdMS_TO_TICKS(SERVO_DELAY));
+    v += analogRead(LDRPIN);
+    vTaskDelay(pdMS_TO_TICKS(SERVO_DELAY));
+    v += analogRead(LDRPIN);
+    ldrValue = v;
     int s = myservo.read();
-    if      (v < 1200 && s < 175)                          myservo.write(180);
-    else if (v > 1200 && v < 2000 && (s < 85 || s > 95))  myservo.write(90);
-    else if (v > 2000 && s > 5)                            myservo.write(0);
+    if (print & 0x03)
+    {
+      Serial.print("Value of brightness is ");
+      Serial.println(v);
+      Serial.print("Servo is at angle ");
+      Serial.println(s);
+    }
+    if (v < 1200 && s < 175)
+      myservo.write(180);
+    else if (v > 1200 && v < 2000 && (s < 85 || s > 95))
+      myservo.write(90);
+    else if (v > 2000 && s > 5)
+      myservo.write(0);
     vTaskDelay(pdMS_TO_TICKS(SERVO_DELAY));
   }
 }
 
-const char* wochentage[] = {
-  "Sonntag", "Montag", "Dienstag", "Mittwoch",
-  "Donnerstag", "Freitag", "Samstag"
-};
+const char *wochentage[] = {
+    "Sonntag", "Montag", "Dienstag", "Mittwoch",
+    "Donnerstag", "Freitag", "Samstag"};
 
-void updateDisplay(void *p) {
+// ================= DISPLAY =================
+void updateDisplay(void *p)
+{
 
-  while (true) {
-    struct tm timeinfo; getLocalTime(&timeinfo);
+  while (true)
+  {
+    struct tm timeinfo;
+    getLocalTime(&timeinfo);
     char datumBuffer[30];
     sprintf(datumBuffer, "%s, %02d.%02d.%04d",
-    wochentage[timeinfo.tm_wday],
-    timeinfo.tm_mday,
-    timeinfo.tm_mon + 1,
-    timeinfo.tm_year + 1900
-    );
+            wochentage[timeinfo.tm_wday],
+            timeinfo.tm_mday,
+            timeinfo.tm_mon + 1,
+            timeinfo.tm_year + 1900);
 
-    display.setFullWindow(); display.firstPage();
-    
-    do {
-      if (page==0) {
+    display.setFullWindow();
+    display.firstPage();
+
+    do
+    {
+      if (page == 0)
+      {
+        if (print & 0x04)
+        {
+          Serial.println("Printing temp...");
+        }
         display.fillScreen(GxEPD_WHITE);
-        display.setCursor(20,40);  display.print("Temp: ");  display.print(temperature,1); display.print("C");
-        display.setCursor(20,80);  display.print("Luftf: "); display.print(humidity,1);    display.print("%");
-        display.setCursor(20,120); display.print(fanOn?"Ventilator an":"Ventilator aus");
-      } else if (page==1) {
+        display.setCursor(20, 40);
+        display.print("Temp: ");
+        display.print(temperature, 1);
+        display.print("C");
+        display.setCursor(20, 80);
+        display.print("Luftf: ");
+        display.print(humidity, 1);
+        display.print("%");
+        display.setCursor(20, 120);
+        display.print(fanOn ? "Ventilator an" : "Ventilator aus");
+      }
+      else if (page == 1)
+      {
+        if (print & 0x04)
+        {
+          Serial.println("Printing time...");
+        }
         display.fillScreen(GxEPD_WHITE);
-        display.setCursor(20,40); display.println("Heute ist der:");
-        display.setCursor(20, 80);display.println(datumBuffer);
-        display.setCursor(20,120);display.println(&timeinfo,"%H:%M:%S Uhr");
-      } else if (page==2) {
+        display.setCursor(20, 40);
+        display.println("Heute ist der:");
+        display.setCursor(20, 80);
+        display.println(datumBuffer);
+        display.setCursor(20, 120);
+        display.println(&timeinfo, "%H:%M:%S Uhr");
+      }
+      else if (page == 2)
+      {
+        if (print & 0x04)
+        {
+          Serial.println("Printing alarm...");
+        }
         display.fillScreen(GxEPD_WHITE);
-        display.setCursor(20,40); display.println("Alarm um:");
-        display.setCursor(20,80);
-        if(weckStunde<10)display.print("0"); display.print(weckStunde); display.print(":");
-        if(weckMinute<10)display.print("0"); display.print(weckMinute); display.println(" Uhr");
-        display.setCursor(20,120); display.println(alarmActive?"Aktiv":"Deaktiviert");
-      } else if (page==3) {
+        display.setCursor(20, 40);
+        display.println("Alarm um:");
+        display.setCursor(20, 80);
+        if (weckStunde < 10)
+          display.print("0");
+        display.print(weckStunde);
+        display.print(":");
+        if (weckMinute < 10)
+          display.print("0");
+        display.print(weckMinute);
+        display.println(" Uhr");
+        display.setCursor(20, 120);
+        display.println(alarmActive ? "Aktiv" : "Deaktiviert");
+      }
+      else if (page == 3)
+      {
+        if (print & 0x04)
+        {
+          Serial.println("Printing weather forcast...");
+        }
         display.fillScreen(GxEPD_WHITE);
-        time_t tomorrow=time(nullptr)+86400; struct tm *ti=localtime(&tomorrow);
-        display.setCursor(20,40); display.print("Wetter "); display.println(ti,"%d.%m.");
-        display.setCursor(20,80);
-        display.print("Max:"); display.print(maxTemp,1); display.print(" Min:"); display.print(minTemp,1);
-        display.setCursor(20,120);
-        display.print("R:"); display.print(rainSum,1); display.print(" S:"); display.print(snowfallSum,1);
-      } else if (page==4) {
-        display.fillScreen(GxEPD_WHITE); display.setCursor(20,40);
-        int s=myservo.read();
-        if(s<5)           display.println("Jalousie: offen");
-        else if(s>85&&s<95){display.println("Jalousie:"); display.setCursor(20,80); display.println("halb zu");}
-        else if(s>175)    {display.println("Jalousie:"); display.setCursor(20,80); display.println("geschlossen");}
-        else               display.println("Jalousie: ?");
+        time_t tomorrow = time(nullptr) + 86400;
+        struct tm *ti = localtime(&tomorrow);
+        display.setCursor(20, 40);
+        display.print("Wetter ");
+        display.println(ti, "%d.%m.");
+        display.setCursor(20, 80);
+        display.print("Max:");
+        display.print(maxTemp, 1);
+        display.print(" Min:");
+        display.print(minTemp, 1);
+        display.setCursor(20, 120);
+        display.print("R:");
+        display.print(rainSum, 1);
+        display.print(" S:");
+        display.print(snowfallSum, 1);
+      }
+      else if (page == 4)
+      {
+        if (print & 0x04)
+        {
+          Serial.println("Printing Servo status...");
+        }
+        display.fillScreen(GxEPD_WHITE);
+        display.setCursor(20, 40);
+        int s = myservo.read();
+        if (s < 5)
+          display.println("Jalousie: offen");
+        else if (s > 85 && s < 95)
+        {
+          display.println("Jalousie:");
+          display.setCursor(20, 80);
+          display.println("halb zu");
+        }
+        else if (s > 175)
+        {
+          display.println("Jalousie:");
+          display.setCursor(20, 80);
+          display.println("geschlossen");
+        }
+        else
+          display.println("Jalousie: ?");
       }
     } while (display.nextPage());
-    page=(page+1)%5;
+    page = (page + 1) % 5;
+    Serial.println("Display updated");
     vTaskDelay(pdMS_TO_TICKS(DISPLAY_DELAY));
   }
 }
 
-void handleAlarm(void *p) {
-  while (true) {
-    struct tm timeinfo; getLocalTime(&timeinfo);
-    if (alarmActive && timeinfo.tm_hour==weckStunde && timeinfo.tm_min==weckMinute && !alarmOff) {
-      for (int n=0; n<8 && !alarmOff; n++) {
-        alarmOff=(digitalRead(ALARM_OFF_BUTTON)==0);
-        tone(SPEAKERPIN,melody[n],noteDuration);
+// ================= Printing local time =================
+void printLocalTime()
+{
+  if (print & 0x05)
+  {
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo))
+    {
+      Serial.println("Failed to obtain time");
+      return;
+    }
+    Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
+    Serial.print("Day of week: ");
+    Serial.println(&timeinfo, "%A");
+    Serial.print("Month: ");
+    Serial.println(&timeinfo, "%B");
+    Serial.print("Day of Month: ");
+    Serial.println(&timeinfo, "%d");
+    Serial.print("Year: ");
+    Serial.println(&timeinfo, "%Y");
+    Serial.print("Hour: ");
+    Serial.println(&timeinfo, "%H");
+    Serial.print("Hour (12 hour format): ");
+    Serial.println(&timeinfo, "%I");
+    Serial.print("Minute: ");
+    Serial.println(&timeinfo, "%M");
+    Serial.print("Second: ");
+    Serial.println(&timeinfo, "%S");
+
+    Serial.println("Time variables");
+    char timeHour[3];
+    strftime(timeHour, 3, "%H", &timeinfo);
+    Serial.println(timeHour);
+    char timeWeekDay[10];
+    strftime(timeWeekDay, 10, "%A", &timeinfo);
+    Serial.println(timeWeekDay);
+    Serial.println();
+  }
+}
+
+// ================= Handle alarm clock =================
+void handleAlarm(void *p)
+{
+  while (true)
+  {
+    if (print & 0x06)
+    {
+      Serial.print("Handling alarm...");
+    }
+
+    struct tm timeinfo;
+    getLocalTime(&timeinfo);
+    if (alarmOff == true)
+    {
+      if (print & 0x06)
+      {
+        Serial.println("Alarm is off...");
+      }
+    }
+
+    if (alarmActive && timeinfo.tm_hour == weckStunde && timeinfo.tm_min == weckMinute && !alarmOff)
+    {
+      if (print & 0x06)
+      {
+        Serial.println("Alarm is buzzing...");
+      }
+      for (int n = 0; n < 8 && !alarmOff; n++)
+      {
+        alarmOff = (digitalRead(ALARM_OFF_BUTTON) == 0);
+        tone(SPEAKERPIN, melody[n], noteDuration);
         vTaskDelay(pdMS_TO_TICKS(500));
       }
     }
-    if (alarmOff && timeinfo.tm_hour==weckStunde && timeinfo.tm_min==weckMinute+1) alarmOff=false;
+    if (alarmOff && timeinfo.tm_hour == weckStunde && timeinfo.tm_min == weckMinute + 1)
+      alarmOff = false;
     vTaskDelay(pdMS_TO_TICKS(ALARM_DELAY));
   }
 }
 
-void readWeatherForcast(void *p) {
-  while (true) {
-    HTTPClient client; client.begin(urlWeather);
-    if (client.GET()==HTTP_CODE_OK) {
-      String resp=client.getString(); JsonDocument doc; deserializeJson(doc,resp.c_str());
-      maxTemp=doc["daily"]["temperature_2m_max"][1]; minTemp=doc["daily"]["temperature_2m_min"][1];
-      rainSum=doc["daily"]["rain_sum"][1];           snowfallSum=doc["daily"]["snowfall_sum"][1];
+// ================= Reading weather forcast =================
+void readWeatherForcast(void *p)
+{
+  while (true)
+  {
+    if (print & 0x07)
+    {
+      Serial.println("Getting weather forcast");
+    }
+    HTTPClient client;
+    client.begin(urlWeather);
+    if (client.GET() == HTTP_CODE_OK)
+    {
+      String resp = client.getString();
+      if (print & 0x07)
+      {
+        Serial.println(response);
+      }
+      JsonDocument doc;
+      deserializeJson(doc, resp.c_str());
+      maxTemp = doc["daily"]["temperature_2m_max"][1];
+      minTemp = doc["daily"]["temperature_2m_min"][1];
+      rainSum = doc["daily"]["rain_sum"][1];
+      snowfallSum = doc["daily"]["snowfall_sum"][1];
     }
     client.end();
     vTaskDelay(pdMS_TO_TICKS(FORCAST_DELAY));
   }
 }
 
-void webServerTask(void *p) {
-  while (true) { server.handleClient(); vTaskDelay(pdMS_TO_TICKS(WEB_DELAY)); }
+//================= Set alarm time =================
+void handleAlarmSet()
+{
+  if (server.hasArg("hour"))
+    weckStunde = server.arg("hour").toInt();
+  if (server.hasArg("minute"))
+    weckMinute = server.arg("minute").toInt();
+  if (server.hasArg("active"))
+    alarmActive = server.arg("active").toInt() == 1;
+  if (print & 0x08)
+  {
+    Serial.print("Setting alarm time");
+    Serial.print("hour ");
+    Serial.print(weckStunde);
+    Serial.print("min");
+    Serial.println(weckMinute);
+  }
+  if (!alarmActive)
+    alarmOff = true;
+  server.send(200, "application/json", "{\"ok\":true}");
 }
 
+//================= Handle jalousie =================
+void handleJalousie()
+{
+  if (server.hasArg("angle"))
+  {
+    if (print & 0x09)
+    {
+      Serial.print("Setting jalousie angle to ");
+      Serial.print(server.arg("angle").toInt());
+    }
+    myservo.write(server.arg("angle").toInt());
+  }
+  server.send(200, "application/json", "{\"ok\":true}");
+}
 
-void setup() {
+// ================= Handle webserver =================
+void webServerTask(void *p)
+{
+  while (true)
+  {
+    server.handleClient();
+    vTaskDelay(pdMS_TO_TICKS(WEB_DELAY));
+  }
+}
+
+void setup()
+{
   Serial.begin(115200);
-  Serial.print("Verbinde mit "); Serial.println(ssid);
+
+  // Connect to Wi-Fi
+  Serial.print("Verbinde mit ");
+  Serial.println(ssid);
   WiFi.begin(ssid, password);
-  while (WiFi.status()!=WL_CONNECTED){delay(500);Serial.print(".");}
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.print(".");
+  }
   Serial.println("\nWiFi verbunden!");
   Serial.print(">>> Dashboard oeffnen: http://");
   Serial.println(WiFi.localIP());
 
+  // Init and get the time
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  printLocalTime();
 
-  pinMode(ENABLE,OUTPUT); pinMode(DIRA,OUTPUT); pinMode(DIRB,OUTPUT);
-  pinMode(ALARM_OFF_BUTTON,INPUT_PULLUP);
-  myservo.attach(13); myservo.write(0);
+  // DC Motor
+  pinMode(ENABLE, OUTPUT);
+  pinMode(DIRA, OUTPUT);
+  pinMode(DIRB, OUTPUT);
+
+  // Alarm button
+  pinMode(ALARM_OFF_BUTTON, INPUT_PULLUP);
+
+  // Servo Motor
+  myservo.attach(13);
+  myservo.write(0);
+
+  // Sensor
   dht.begin();
 
-  display.init(); display.setRotation(3);
+  // Display
+  display.init();
+  display.setRotation(3);
   display.setFont(&FreeMonoBold9pt7b);
   display.setTextColor(GxEPD_BLACK);
 
-  server.on("/",             handleRoot);
-  server.on("/api/status",   handleStatus);
+  // Set web apis
+  server.on("/", handleRoot);
+  server.on("/api/status", handleStatus);
   server.on("/api/jalousie", handleJalousie);
-  server.on("/api/alarm",    handleAlarmSet);
+  server.on("/api/alarm", handleAlarmSet);
   server.begin();
 
-  xTaskCreatePinnedToCore(webServerTask,     "WebTask",    8192,  NULL, 3, &webHandle,         0);
-  xTaskCreatePinnedToCore(readWeatherForcast,"WeatherTask",16384, NULL, 1, &forcastHandle,     1);
-  xTaskCreatePinnedToCore(updateDisplay,     "DisplayTask",16384, NULL, 2, &displayHandle,     1);
-  xTaskCreatePinnedToCore(readSensor,        "SensorTask", 16384, NULL, 1, &readSensorsHandle, 1);
-  xTaskCreatePinnedToCore(controlFan,        "FanTask",    16384, NULL, 1, &fanHandle,         1);
-  xTaskCreatePinnedToCore(controlServo,      "ServoTask",  16384, NULL, 1, &servoHandle,       1);
-  xTaskCreatePinnedToCore(handleAlarm,       "AlarmTask",  16384, NULL, 1, &alarmHandle,       1);
+  // Start threads
+  xTaskCreatePinnedToCore(webServerTask, "WebTask", 8192, NULL, 3, &webHandle, 0);
+  xTaskCreatePinnedToCore(readWeatherForcast, "WeatherTask", 16384, NULL, 1, &forcastHandle, 1);
+  xTaskCreatePinnedToCore(updateDisplay, "DisplayTask", 16384, NULL, 2, &displayHandle, 1);
+  xTaskCreatePinnedToCore(readSensor, "SensorTask", 16384, NULL, 1, &readSensorsHandle, 1);
+  xTaskCreatePinnedToCore(controlFan, "FanTask", 16384, NULL, 1, &fanHandle, 1);
+  xTaskCreatePinnedToCore(controlServo, "ServoTask", 16384, NULL, 1, &servoHandle, 1);
+  xTaskCreatePinnedToCore(handleAlarm, "AlarmTask", 16384, NULL, 1, &alarmHandle, 1);
 
   Serial.println("System gestartet.");
 }
 
+// ================= LOOP =================
 void loop() {}
+
+/*
+  Projekt SmartHome: Wetter forcast, Wecker mit lautsprecher, jalousie mit dashboard einstellen + uhr + Sonnenstand
+  wetter = https://api.open-meteo.com/v1/forecast?latitude=48.5&longitude=10.6&daily=temperature_2m_max,temperature_2m_min,snowfall_sum,rain_sum&current=rain,showers,snowfall&timezone=Europe%2FBerlin
+*/
