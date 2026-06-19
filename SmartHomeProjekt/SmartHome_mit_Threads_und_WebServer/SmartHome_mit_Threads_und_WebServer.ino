@@ -257,7 +257,7 @@ async function saveAlarm(active){const h=parseInt(document.getElementById('ah').
 )rawhtml";
 
 // ================= DEBUGGING =================
-// 0x01 sensors; 0x02 fan; 0x03 servo; 0x04 Display; 0x05 localTime; 0x06 alarm; 0x07 forcast; 0x08 alarm set; 0x09 jalousie set
+// 0x01 sensors; 0x02 fan; 0x04 servo; 0x08 Display; 0x10 localTime; 0x20 alarm; 0x40 forcast; 0x80 alarm set; 0x100 jalousie set
 int print = 0 | 0x02;
 
 // ═══════════════════════════════════════════════════════════════
@@ -357,7 +357,7 @@ void controlServo(void *p)
 {
   while (true)
   {
-    if (print & 0x03)
+    if (print & 0x04)
     {
       Serial.println("Handling the servo motor");
     }
@@ -368,7 +368,7 @@ void controlServo(void *p)
     v += analogRead(LDRPIN);
     ldrValue = v;
     int s = myservo.read();
-    if (print & 0x03)
+    if (print & 0x04)
     {
       Serial.print("Value of brightness is ");
       Serial.println(v);
@@ -411,7 +411,7 @@ void updateDisplay(void *p)
     {
       if (page == 0)
       {
-        if (print & 0x04)
+        if (print & 0x08)
         {
           Serial.println("Printing temp...");
         }
@@ -429,7 +429,7 @@ void updateDisplay(void *p)
       }
       else if (page == 1)
       {
-        if (print & 0x04)
+        if (print & 0x08)
         {
           Serial.println("Printing time...");
         }
@@ -443,7 +443,7 @@ void updateDisplay(void *p)
       }
       else if (page == 2)
       {
-        if (print & 0x04)
+        if (print & 0x08)
         {
           Serial.println("Printing alarm...");
         }
@@ -464,7 +464,7 @@ void updateDisplay(void *p)
       }
       else if (page == 3)
       {
-        if (print & 0x04)
+        if (print & 0x08)
         {
           Serial.println("Printing weather forcast...");
         }
@@ -487,7 +487,7 @@ void updateDisplay(void *p)
       }
       else if (page == 4)
       {
-        if (print & 0x04)
+        if (print & 0x08)
         {
           Serial.println("Printing Servo status...");
         }
@@ -521,7 +521,7 @@ void updateDisplay(void *p)
 // ================= Printing local time =================
 void printLocalTime()
 {
-  if (print & 0x05)
+  if (print & 0x10)
   {
     struct tm timeinfo;
     if (!getLocalTime(&timeinfo))
@@ -563,7 +563,7 @@ void handleAlarm(void *p)
 {
   while (true)
   {
-    if (print & 0x06)
+    if (print & 0x20)
     {
       Serial.print("Handling alarm...");
     }
@@ -572,7 +572,7 @@ void handleAlarm(void *p)
     getLocalTime(&timeinfo);
     if (alarmOff == true)
     {
-      if (print & 0x06)
+      if (print & 0x20)
       {
         Serial.println("Alarm is off...");
       }
@@ -580,7 +580,7 @@ void handleAlarm(void *p)
 
     if (alarmActive && timeinfo.tm_hour == weckStunde && timeinfo.tm_min == weckMinute && !alarmOff)
     {
-      if (print & 0x06)
+      if (print & 0x20)
       {
         Serial.println("Alarm is buzzing...");
       }
@@ -602,7 +602,7 @@ void readWeatherForcast(void *p)
 {
   while (true)
   {
-    if (print & 0x07)
+    if (print & 0x40)
     {
       Serial.println("Getting weather forcast");
     }
@@ -611,9 +611,9 @@ void readWeatherForcast(void *p)
     if (client.GET() == HTTP_CODE_OK)
     {
       String resp = client.getString();
-      if (print & 0x07)
+      if (print & 0x40)
       {
-        Serial.println(response);
+        Serial.println(resp);
       }
       JsonDocument doc;
       deserializeJson(doc, resp.c_str());
@@ -636,7 +636,7 @@ void handleAlarmSet()
     weckMinute = server.arg("minute").toInt();
   if (server.hasArg("active"))
     alarmActive = server.arg("active").toInt() == 1;
-  if (print & 0x08)
+  if (print & 0x80)
   {
     Serial.print("Setting alarm time");
     Serial.print("hour ");
@@ -654,7 +654,7 @@ void handleJalousie()
 {
   if (server.hasArg("angle"))
   {
-    if (print & 0x09)
+    if (print & 0x100)
     {
       Serial.print("Setting jalousie angle to ");
       Serial.print(server.arg("angle").toInt());
