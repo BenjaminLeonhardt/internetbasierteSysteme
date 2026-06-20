@@ -33,6 +33,8 @@ DHT dht(DHTPIN, DHTTYPE);
 #define ENABLE 27
 #define DIRA 25
 #define DIRB 26
+bool ventilatorControlWebsite = false;
+bool ventilatorOn = false;
 
 // ================= Servo MOTOR =================
 #define LDRPIN 34 // analog pin für licht abhängiger wiederstand
@@ -161,6 +163,7 @@ hr{border:none;border-top:1px solid var(--b);margin:.75rem 0}
 </header>
 <div class="tabs">
   <button class="tab active" onclick="tab('ov',this)">Uebersicht</button>
+  <button class="tab" onclick="tab('vent',this)">Ventilator</button>
   <button class="tab" onclick="tab('jal',this)">Jalousie</button>
   <button class="tab" onclick="tab('alm',this)">Wecker</button>
   <button class="tab" onclick="tab('wthr',this)">Wetter</button>
@@ -179,7 +182,7 @@ hr{border:none;border-top:1px solid var(--b);margin:.75rem 0}
     </div>
   </div>
   <div class="card">
-    <div class="sec">Wetter morgen Aalen</div>
+    <div class="sec">Wetter morgen in Aalen</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:13px">
       <span style="color:var(--m)">Max</span><span id="omax" style="text-align:right;font-weight:500">-</span>
       <span style="color:var(--m)">Min</span><span id="omin" style="text-align:right;font-weight:500">-</span>
@@ -188,6 +191,22 @@ hr{border:none;border-top:1px solid var(--b);margin:.75rem 0}
     </div>
   </div>
 </div>
+<div id="tab-vent" class="page">
+  <div class="card">
+    <div class="sec">Ventilator Manuell</div>
+    <div class="row" style="margin:12px 0">
+      <div style="font-size:13px;color:var(--m)">Ventilator: <span id="venton" class="badge off">aus</span> </div></div>
+    </div>
+    <div class="brow">
+	  <button class="btn" onclick="setVent(true)">Ein</button>
+	  <button class="btn" onclick="setVent(false)">Aus</button>
+	  <button class="btn" onclick="setVentAuto()">Automatik</button>
+    </div>
+    <hr>
+    <div class="sec">LDR Schwellwerte</div>
+    <div style="font-size:13px;color:var(--m)">unter 1200: zu / 1200-2000: halb / ueber 2000: offen</div>
+  </div>
+
 <div id="tab-jal" class="page">
   <div class="card">
     <div class="sec">Jalousie Manuell</div>
@@ -249,8 +268,10 @@ function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t
 function jApply(angle){const pct=(angle/180)*100;const lbl=angle<5?'Offen':angle>175?'Geschlossen':angle>85&&angle<95?'Halb':angle+' Grad';['jfill'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.width=pct+'%';});['jvis'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.height=pct+'%';});['jlbl','jlbl2'].forEach(id=>{const e=document.getElementById(id);if(e)e.textContent=lbl;});const sa=document.getElementById('sang');if(sa)sa.textContent=angle;}
 function tickClock(){const d=new Date();document.getElementById('clk').textContent=p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());document.getElementById('dstr').textContent=DAYS[d.getDay()]+', '+d.getDate()+'. '+MON[d.getMonth()]+' '+d.getFullYear();document.getElementById('hclock').textContent=p(d.getHours())+':'+p(d.getMinutes());}
 setInterval(tickClock,1000);tickClock();
-async function poll(){try{const r=await fetch('/api/status');if(!r.ok)throw'';const s=await r.json();document.getElementById('dot').className='dot';document.getElementById('espip').textContent='ESP32 verbunden';document.getElementById('temp').innerHTML=(s.temperature>0?s.temperature.toFixed(1):'-')+'<span class="unit"> C</span>';document.getElementById('hum').innerHTML=(s.humidity>0?s.humidity.toFixed(1):'-')+'<span class="unit"> %</span>';const fb=document.getElementById('fan');fb.textContent=s.fan_on?'An':'Aus';fb.className='badge '+(s.fan_on?'on':'off');jApply(s.servo_angle||0);const ldr=document.getElementById('ldrv');if(ldr)ldr.textContent=s.ldr_value;document.getElementById('adsp').textContent=p(s.alarm_hour)+':'+p(s.alarm_minute);document.getElementById('ast').textContent=s.alarm_active?'Aktiv':'Deaktiviert';if(s.max_temp>0){const fmt=v=>v.toFixed(1);['omax','wmax'].forEach(id=>document.getElementById(id).textContent=fmt(s.max_temp)+' C');['omin','wmin'].forEach(id=>document.getElementById(id).textContent=fmt(s.min_temp)+' C');['orain','wrain'].forEach(id=>document.getElementById(id).textContent=fmt(s.rain_sum)+' mm');['osnow','wsnow'].forEach(id=>document.getElementById(id).textContent=fmt(s.snow_sum)+' cm');}}catch(e){document.getElementById('dot').className='dot off';document.getElementById('espip').textContent='Nicht verbunden';}}
+async function poll(){try{const r=await fetch('/api/status');if(!r.ok)throw'';const s=await r.json();document.getElementById('dot').className='dot';document.getElementById('espip').textContent='ESP32 verbunden';document.getElementById('temp').innerHTML=(s.temperature>0?s.temperature.toFixed(1):'-')+'<span class="unit"> C</span>';document.getElementById('hum').innerHTML=(s.humidity>0?s.humidity.toFixed(1):'-')+'<span class="unit"> %</span>';const fb=document.getElementById('fan');fb.textContent=s.fan_on?'An':'Aus';fb.className='badge '+(s.fan_on?'on':'off');const veb=document.getElementById('venton');veb.textContent=s.fan_on?'An':'Aus';veb.className='badge '+(s.fan_on?'on':'off');jApply(s.servo_angle||0);const ldr=document.getElementById('ldrv');if(ldr)ldr.textContent=s.ldr_value;document.getElementById('adsp').textContent=p(s.alarm_hour)+':'+p(s.alarm_minute);document.getElementById('ast').textContent=s.alarm_active?'Aktiv':'Deaktiviert';if(s.max_temp>0){const fmt=v=>v.toFixed(1);['omax','wmax'].forEach(id=>document.getElementById(id).textContent=fmt(s.max_temp)+' C');['omin','wmin'].forEach(id=>document.getElementById(id).textContent=fmt(s.min_temp)+' C');['orain','wrain'].forEach(id=>document.getElementById(id).textContent=fmt(s.rain_sum)+' mm');['osnow','wsnow'].forEach(id=>document.getElementById(id).textContent=fmt(s.snow_sum)+' cm');}}catch(e){document.getElementById('dot').className='dot off';document.getElementById('espip').textContent='Nicht verbunden';}}
 setInterval(poll,3000);poll();
+async function setVent(on){jApply(on);await fetch('/api/ventilator?on='+on);toast('Ventilator: ' + on);}
+async function setVentAuto(){jApply();await fetch('/api/ventilatorAuto');toast('Ventilator: auto');}
 async function setJal(angle){jApply(angle);await fetch('/api/jalousie?angle='+angle);toast('Jalousie: '+angle+' Grad');}
 async function setJalAuto(){jApply();await fetch('/api/jalousieAuto');toast('Jalousie: auf automatik');}
 async function saveAlarm(active){const h=parseInt(document.getElementById('ah').value)||0;const m=parseInt(document.getElementById('am').value)||0;await fetch('/api/alarm?hour='+h+'&minute='+m+'&active='+active);document.getElementById('adsp').textContent=p(h)+':'+p(m);document.getElementById('ast').textContent=active?'Aktiv':'Deaktiviert';toast(active?'Wecker: '+p(h)+':'+p(m):'Wecker deaktiviert');}
@@ -260,7 +281,8 @@ async function saveAlarm(active){const h=parseInt(document.getElementById('ah').
 )rawhtml";
 
 // ================= DEBUGGING =================
-// 0x01 sensors; 0x02 fan; 0x04 servo; 0x08 Display; 0x10 localTime; 0x20 alarm; 0x40 forcast; 0x80 alarm set; 0x100 jalousie set
+// 0x001 sensors; 0x002 fan; 0x004 servo; 0x008 Display; 0x010 localTime; 0x020 alarm; 0x040 forcast; 0x080 alarm set; 
+// 0x100 jalousie set; 0x200 ventilator set; 0x400 jalousie auto; 0x800 ventilator auto;
 int print = 0 | 0x104;
 
 // ═══════════════════════════════════════════════════════════════
@@ -334,7 +356,7 @@ void controlFan(void *p)
       Serial.println("Checking temp and setting fan status");
     }
 
-    if (temperature > 30.0)
+    if ((temperature > 30.0 && !ventilatorControlWebsite) || (ventilatorOn && ventilatorControlWebsite))
     {
       digitalWrite(ENABLE, HIGH);
       digitalWrite(DIRA, HIGH);
@@ -664,10 +686,32 @@ void handleJalousie()
     if (print & 0x100)
     {
       Serial.print("Setting jalousie angle to ");
-      Serial.print(server.arg("angle").toInt());
+      Serial.println(server.arg("angle").toInt());
     }
     servoControlWebsite = true;
     myservo.write(server.arg("angle").toInt());
+  }
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+//================= Handle fan =================
+void handleFan()
+{
+  if (server.hasArg("on"))
+  {
+    if (print & 0x200)
+    {
+      Serial.print("Setting Fan to ");
+      Serial.println(server.arg("on"));
+    }
+    if(server.arg("on").equals("false")){
+      ventilatorControlWebsite = true;
+      ventilatorOn=false;
+    }
+    if(server.arg("on").equals("true")){
+      ventilatorControlWebsite = true;
+      ventilatorOn=true;
+    }
   }
   server.send(200, "application/json", "{\"ok\":true}");
 }
@@ -676,8 +720,21 @@ void handleJalousie()
 void handleJalousieAuto()
 {  
   servoControlWebsite = false;
-  Serial.print("Setting jalousie angle to automatic");
-  
+  if (print & 0x400)
+  {
+    Serial.print("Setting jalousie angle to automatic");
+  }
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+//================= Set jalousie to automatic =================
+void handleVentilatorAuto()
+{  
+  ventilatorControlWebsite = false;
+  if (print & 0x800)
+  {
+    Serial.print("Setting ventilator to automatic");
+  }
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
@@ -737,6 +794,8 @@ void setup()
   // Set web apis
   server.on("/", handleRoot);
   server.on("/api/status", handleStatus);
+  server.on("/api/ventilator", handleFan);
+  server.on("/api/ventilatorAuto", handleVentilatorAuto);
   server.on("/api/jalousie", handleJalousie);
   server.on("/api/jalousieAuto", handleJalousieAuto);
   server.on("/api/alarm", handleAlarmSet);
