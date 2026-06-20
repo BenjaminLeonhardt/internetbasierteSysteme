@@ -201,7 +201,7 @@ hr{border:none;border-top:1px solid var(--b);margin:.75rem 0}
       <button class="btn" onclick="setJal(0)">Offen (0)</button>
       <button class="btn" onclick="setJal(90)">Halb (90)</button>
       <button class="btn" onclick="setJal(180)">Zu (180)</button>
-	  <button class="btn" onclick="setJalAuto(-1)">Automatik</button>
+	  <button class="btn" onclick="setJalAuto()">Automatik</button>
     </div>
     <hr>
     <div class="sec">LDR Schwellwerte</div>
@@ -587,8 +587,10 @@ void handleAlarm(void *p)
     {
       if (print & 0x20)
       {
-        Serial.println("Alarm is buzzing...");
+        Serial.println("Alarm is buzzing and opening jalousie...");
       }
+      servoControlWebsite = true;
+      myservo.write(0);
       for (int n = 0; n < 8 && !alarmOff; n++)
       {
         alarmOff = (digitalRead(ALARM_OFF_BUTTON) == 0);
