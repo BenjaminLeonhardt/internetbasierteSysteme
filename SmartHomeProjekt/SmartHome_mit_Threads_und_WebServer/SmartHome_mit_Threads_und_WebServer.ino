@@ -37,6 +37,7 @@ DHT dht(DHTPIN, DHTTYPE);
 // ================= Servo MOTOR =================
 #define LDRPIN 34 // analog pin für licht abhängiger wiederstand
 Servo myservo;
+bool servoControlWebsite = false;
 
 // ================= TEMPERATUR SENSOR =================
 volatile float temperature = 0;
@@ -168,7 +169,7 @@ hr{border:none;border-top:1px solid var(--b);margin:.75rem 0}
   <div class="grid">
     <div class="card"><div class="lbl">Temperatur</div><div class="val" id="temp">-<span class="unit"> C</span></div><div style="font-size:12px;color:var(--m);margin-top:4px">DHT11 Innen</div></div>
     <div class="card"><div class="lbl">Luftfeuchtigkeit</div><div class="val" id="hum">-<span class="unit"> %</span></div><div style="font-size:12px;color:var(--m);margin-top:4px">DHT11 Innen</div></div>
-    <div class="card"><div class="lbl">Ventilator</div><div style="margin-top:6px"><span class="badge off" id="fan">Aus</span></div><div style="font-size:12px;color:var(--m);margin-top:6px">Auto ab 28 C</div></div>
+    <div class="card"><div class="lbl">Ventilator</div><div style="margin-top:6px"><span class="badge off" id="fan">Aus</span></div><div style="font-size:12px;color:var(--m);margin-top:6px">Auto ab 30 C</div></div>
     <div class="card"><div class="lbl">Jalousie</div><div style="font-size:16px;font-weight:500;margin-top:4px" id="jlbl">-</div><div class="jt"><div class="jf" id="jfill" style="width:0%"></div></div><div style="font-size:12px;color:var(--m)">LDR Auto</div></div>
   </div>
   <div class="card" style="margin-bottom:.75rem">
@@ -200,6 +201,7 @@ hr{border:none;border-top:1px solid var(--b);margin:.75rem 0}
       <button class="btn" onclick="setJal(0)">Offen (0)</button>
       <button class="btn" onclick="setJal(90)">Halb (90)</button>
       <button class="btn" onclick="setJal(180)">Zu (180)</button>
+	  <button class="btn" onclick="setJalAuto(-1)">Automatik</button>
     </div>
     <hr>
     <div class="sec">LDR Schwellwerte</div>
@@ -250,6 +252,7 @@ setInterval(tickClock,1000);tickClock();
 async function poll(){try{const r=await fetch('/api/status');if(!r.ok)throw'';const s=await r.json();document.getElementById('dot').className='dot';document.getElementById('espip').textContent='ESP32 verbunden';document.getElementById('temp').innerHTML=(s.temperature>0?s.temperature.toFixed(1):'-')+'<span class="unit"> C</span>';document.getElementById('hum').innerHTML=(s.humidity>0?s.humidity.toFixed(1):'-')+'<span class="unit"> %</span>';const fb=document.getElementById('fan');fb.textContent=s.fan_on?'An':'Aus';fb.className='badge '+(s.fan_on?'on':'off');jApply(s.servo_angle||0);const ldr=document.getElementById('ldrv');if(ldr)ldr.textContent=s.ldr_value;document.getElementById('adsp').textContent=p(s.alarm_hour)+':'+p(s.alarm_minute);document.getElementById('ast').textContent=s.alarm_active?'Aktiv':'Deaktiviert';if(s.max_temp>0){const fmt=v=>v.toFixed(1);['omax','wmax'].forEach(id=>document.getElementById(id).textContent=fmt(s.max_temp)+' C');['omin','wmin'].forEach(id=>document.getElementById(id).textContent=fmt(s.min_temp)+' C');['orain','wrain'].forEach(id=>document.getElementById(id).textContent=fmt(s.rain_sum)+' mm');['osnow','wsnow'].forEach(id=>document.getElementById(id).textContent=fmt(s.snow_sum)+' cm');}}catch(e){document.getElementById('dot').className='dot off';document.getElementById('espip').textContent='Nicht verbunden';}}
 setInterval(poll,3000);poll();
 async function setJal(angle){jApply(angle);await fetch('/api/jalousie?angle='+angle);toast('Jalousie: '+angle+' Grad');}
+async function setJalAuto(){jApply();await fetch('/api/jalousieAuto');toast('Jalousie: auf automatik');}
 async function saveAlarm(active){const h=parseInt(document.getElementById('ah').value)||0;const m=parseInt(document.getElementById('am').value)||0;await fetch('/api/alarm?hour='+h+'&minute='+m+'&active='+active);document.getElementById('adsp').textContent=p(h)+':'+p(m);document.getElementById('ast').textContent=active?'Aktiv':'Deaktiviert';toast(active?'Wecker: '+p(h)+':'+p(m):'Wecker deaktiviert');}
 </script>
 </body>
@@ -258,7 +261,7 @@ async function saveAlarm(active){const h=parseInt(document.getElementById('ah').
 
 // ================= DEBUGGING =================
 // 0x01 sensors; 0x02 fan; 0x04 servo; 0x08 Display; 0x10 localTime; 0x20 alarm; 0x40 forcast; 0x80 alarm set; 0x100 jalousie set
-int print = 0 | 0x02;
+int print = 0 | 0x104;
 
 // ═══════════════════════════════════════════════════════════════
 //  WEBSERVER ROUTEN
@@ -331,7 +334,7 @@ void controlFan(void *p)
       Serial.println("Checking temp and setting fan status");
     }
 
-    if (temperature > 28.0)
+    if (temperature > 30.0)
     {
       digitalWrite(ENABLE, HIGH);
       digitalWrite(DIRA, HIGH);
@@ -375,13 +378,15 @@ void controlServo(void *p)
       Serial.print("Servo is at angle ");
       Serial.println(s);
     }
-    if (v < 1200 && s < 175)
-      myservo.write(180);
-    else if (v > 1200 && v < 2000 && (s < 85 || s > 95))
-      myservo.write(90);
-    else if (v > 2000 && s > 5)
-      myservo.write(0);
-    vTaskDelay(pdMS_TO_TICKS(SERVO_DELAY));
+    if(!servoControlWebsite){
+      if (v < 1200 && s < 175)
+        myservo.write(180);
+      else if (v > 1200 && v < 2000 && (s < 85 || s > 95))
+        myservo.write(90);
+      else if (v > 2000 && s > 5)
+        myservo.write(0);
+      vTaskDelay(pdMS_TO_TICKS(SERVO_DELAY));
+    }
   }
 }
 
@@ -659,8 +664,18 @@ void handleJalousie()
       Serial.print("Setting jalousie angle to ");
       Serial.print(server.arg("angle").toInt());
     }
+    servoControlWebsite = true;
     myservo.write(server.arg("angle").toInt());
   }
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+//================= Set jalousie to automatic =================
+void handleJalousieAuto()
+{  
+  servoControlWebsite = false;
+  Serial.print("Setting jalousie angle to automatic");
+  
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
@@ -707,6 +722,7 @@ void setup()
   myservo.attach(13);
   myservo.write(0);
 
+
   // Sensor
   dht.begin();
 
@@ -720,6 +736,7 @@ void setup()
   server.on("/", handleRoot);
   server.on("/api/status", handleStatus);
   server.on("/api/jalousie", handleJalousie);
+  server.on("/api/jalousieAuto", handleJalousieAuto);
   server.on("/api/alarm", handleAlarmSet);
   server.begin();
 
