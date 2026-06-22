@@ -282,20 +282,20 @@ setInterval(tickClock,1000);tickClock();
 async function poll(){try{const r=await fetch('/api/status');if(!r.ok)throw'';const s=await r.json();document.getElementById('dot').className='dot';document.getElementById('espip').textContent='ESP32 verbunden';document.getElementById('temp').innerHTML=(s.temperature>0?s.temperature.toFixed(1):'-')+'<span class="unit"> C</span>';document.getElementById('hum').innerHTML=(s.humidity>0?s.humidity.toFixed(1):'-')+'<span class="unit"> %</span>';const fb=document.getElementById('fan');fb.textContent=s.fan_on?'An':'Aus';fb.className='badge '+(s.fan_on?'on':'off');const vb=document.getElementById('venton');vb.textContent=s.fan_on?'An':'Aus';vb.className='badge '+(s.fan_on?'on':'off');jApply(s.servo_angle||0);const ldr=document.getElementById('ldrv');console.log('ldr object:'+ldr);console.log('ldrv:'+s.ldr_value);if(ldr)ldr.textContent=s.ldr_value;document.getElementById('adsp').textContent=p(s.alarm_hour)+':'+p(s.alarm_minute);document.getElementById('ast').textContent=s.alarm_active?'Aktiv':'Deaktiviert';if(s.max_temp>0){const fmt=v=>v.toFixed(1);['omax','wmax'].forEach(id=>document.getElementById(id).textContent=fmt(s.max_temp)+' C');['omin','wmin'].forEach(id=>document.getElementById(id).textContent=fmt(s.min_temp)+' C');['orain','wrain'].forEach(id=>document.getElementById(id).textContent=fmt(s.rain_sum)+' mm');['osnow','wsnow'].forEach(id=>document.getElementById(id).textContent=fmt(s.snow_sum)+' cm');}}catch(e){document.getElementById('dot').className='dot off';document.getElementById('espip').textContent='Nicht verbunden';}}
 setInterval(poll,3000);poll();
 async function setVent(on){jApply(on);await fetch('/api/ventilator?on='+on);toast('Ventilator: ' + on);}
-async function setVentAuto(){jApply();await fetch('/api/ventilatorAuto');toast('Ventilator: auto');}
-async function setVentTemp(){jApply();tempa=document.getElementById('templ').value;await fetch('/api/ventilatorTemp?temp='+tempa);toast('Ventilator auf '+tempa+'C° gesetzt');document.getElementById('autoTemp').textContent=tempa;document.getElementById('tempa').textContent=tempa;}
+async function setVentAuto(){await fetch('/api/ventilatorAuto');toast('Ventilator: auto');}
+async function setVentTemp(){tempa=document.getElementById('templ').value;await fetch('/api/ventilatorTemp?temp='+tempa);toast('Ventilator auf '+tempa+'C° gesetzt');document.getElementById('autoTemp').textContent=tempa;document.getElementById('tempa').textContent=tempa;}
 async function setJal(angle){jApply(angle);await fetch('/api/jalousie?angle='+angle);toast('Jalousie: '+angle+' Grad');}
-async function setJalAuto(){jApply();await fetch('/api/jalousieAuto');toast('Jalousie: auf automatik');}
+async function setJalAuto(){await fetch('/api/jalousieAuto');toast('Jalousie: auf automatik');}
 async function saveAlarm(active){const h=parseInt(document.getElementById('ah').value)||0;const m=parseInt(document.getElementById('am').value)||0;await fetch('/api/alarm?hour='+h+'&minute='+m+'&active='+active);document.getElementById('adsp').textContent=p(h)+':'+p(m);document.getElementById('ast').textContent=active?'Aktiv':'Deaktiviert';toast(active?'Wecker: '+p(h)+':'+p(m):'Wecker deaktiviert');}
 </script>
 </body>
 </html>
 )rawhtml";
 
-// ================= DEBUGGING Bits=================
-// 0x0001 sensors; 0x0002 fan; 0x0004 servo; 0x0008 Display; 0x0010 localTime; 0x0020 alarm; 0x0040 forcast; 0x0080 alarm set; 
+// ================= DEBUGGING Bits =================
+// 0x0001 sensors; 0x0002 fan; 0x0004 servo; 0x0008 Display; 0x0010 localTime; 0x0020 alarm; 0x0040 forcast; 0x0080 alarm set;
 // 0x0100 jalousie handle; 0x0200 ventilator handle; 0x0400 handle auto temp; 0x0800 jalousie auto; 0x1000 ventilator auto;
-int print = 0 | 0x0204;
+int print = 0 | 0x1402;
 
 // ═══════════════════════════════════════════════════════════════
 //  WEBSERVER ROUTEN
@@ -365,7 +365,7 @@ void controlFan(void *p)
   {
     if (print & 0x0002)
     {
-      
+
       Serial.println("Checking temp and setting fan status");
       Serial.print("actual temp is: ");
       Serial.println(temperature);
@@ -403,11 +403,11 @@ void controlServo(void *p)
     {
       Serial.println("Handling the servo motor");
     }
-    int v = analogRead(LDRPIN); 
+    int v = analogRead(LDRPIN);
     vTaskDelay(pdMS_TO_TICKS(SERVO_DELAY));
-    v += analogRead(LDRPIN); 
+    v += analogRead(LDRPIN);
     vTaskDelay(pdMS_TO_TICKS(SERVO_DELAY));
-    v += analogRead(LDRPIN); 
+    v += analogRead(LDRPIN);
     ldrValue = v;
     int s = myservo.read();
     if (print & 0x0004)
@@ -417,7 +417,8 @@ void controlServo(void *p)
       Serial.print("Servo is at angle ");
       Serial.println(s);
     }
-    if(!servoControlWebsite){
+    if (!servoControlWebsite)
+    {
       if (v < 1200 && s < 175)
         myservo.write(180);
       else if (v > 1200 && v < 2000 && (s < 85 || s > 95))
@@ -682,6 +683,7 @@ void handleAlarmSet()
     weckMinute = server.arg("minute").toInt();
   if (server.hasArg("active"))
     alarmActive = server.arg("active").toInt() == 1;
+  alarmOff = false;
   if (print & 0x0080)
   {
     Serial.print("Setting alarm time");
@@ -721,13 +723,15 @@ void handleFan()
       Serial.print("Setting Fan to ");
       Serial.println(server.arg("on"));
     }
-    if(server.arg("on").equals("false")){
+    if (server.arg("on").equals("false"))
+    {
       ventilatorControlWebsite = true;
-      ventilatorOn=false;
+      ventilatorOn = false;
     }
-    if(server.arg("on").equals("true")){
+    if (server.arg("on").equals("true"))
+    {
       ventilatorControlWebsite = true;
-      ventilatorOn=true;
+      ventilatorOn = true;
     }
   }
   server.send(200, "application/json", "{\"ok\":true}");
@@ -736,6 +740,7 @@ void handleFan()
 //================= Handle fan auto temp =================
 void handleTemp()
 {
+  Serial.println("handleTemp called");
   if (server.hasArg("temp"))
   {
     if (print & 0x0400)
@@ -743,6 +748,8 @@ void handleTemp()
       Serial.print("Setting Fan auto temp to ");
       Serial.println(server.arg("temp"));
       fanAutoTemp = server.arg("temp").toFloat();
+      Serial.print("fanAutoTemp is now: ");
+      Serial.println(fanAutoTemp);
     }
   }
   server.send(200, "application/json", "{\"ok\":true}");
@@ -750,7 +757,7 @@ void handleTemp()
 
 //================= Set jalousie to automatic =================
 void handleJalousieAuto()
-{  
+{
   servoControlWebsite = false;
   if (print & 0x0800)
   {
@@ -761,7 +768,7 @@ void handleJalousieAuto()
 
 //================= Set jalousie to automatic =================
 void handleVentilatorAuto()
-{  
+{
   ventilatorControlWebsite = false;
   if (print & 0x1000)
   {
@@ -812,7 +819,6 @@ void setup()
   // Servo Motor
   myservo.attach(13);
   myservo.write(0);
-
 
   // Sensor
   dht.begin();
