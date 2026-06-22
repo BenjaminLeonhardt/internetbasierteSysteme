@@ -13,6 +13,13 @@
 #include <ESP32Servo.h>  //ESP32Servo
 #include <WebServer.h>
 
+// ================= WIFI + Time =================
+const char *ssid = "";
+const char *password = "";
+const char *ntpServer = "pool.ntp.org";
+const long gmtOffset_sec = 3600;
+const int daylightOffset_sec = 3600;
+
 // ================= DISPLAY =================
 #define EPD_SS 5
 #define EPD_DC 17
@@ -29,7 +36,7 @@ volatile int page = 0;
 #define DHTTYPE DHT11 // use DHT22 if needed
 DHT dht(DHTPIN, DHTTYPE);
 
-// ================= DC MOTOR =================
+// ================= DC MOTOR (Fan) =================
 #define ENABLE 27
 #define DIRA 25
 #define DIRB 26
@@ -37,8 +44,8 @@ bool ventilatorControlWebsite = false;
 bool ventilatorOn = false;
 volatile float fanAutoTemp = 30.0;
 
-// ================= Servo MOTOR =================
-#define LDRPIN 34 // analog pin für licht abhängiger wiederstand
+// ================= Servo MOTOR (Jalousie) =================
+#define LDRPIN 34 // analog pin für lichtabhängiger wiederstand
 Servo myservo;
 bool servoControlWebsite = false;
 
@@ -53,13 +60,6 @@ int melody[] = {NOTE_C5, NOTE_D5, NOTE_E5, NOTE_F5,
                 NOTE_G5, NOTE_A5, NOTE_B5, NOTE_C6};
 int noteDuration = 500;
 #define SPEAKERPIN 12
-
-// ================= WIFI + Time =================
-const char *ssid = "UPC0180653";
-const char *password = "t5fphRdjazbf";
-const char *ntpServer = "pool.ntp.org";
-const long gmtOffset_sec = 3600;
-const int daylightOffset_sec = 3600;
 
 // ================= Alarm =================
 volatile int weckStunde = 16;
